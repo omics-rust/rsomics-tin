@@ -90,9 +90,7 @@ pub fn compute_tin(
 ) -> Result<Vec<TinOutput>> {
     let transcripts = parse_bed12(bed_path)?;
 
-    // Group transcripts by chromosome in BAM order.
-    // Within each chromosome, sort by tx_start for sweep-line ordering.
-    // We preserve the original index so we can emit results in BED12 order.
+    // Sort by chrom then tx_start for sweep-line ordering; keep original index for output order.
     let mut tx_by_idx: Vec<(usize, &_)> = transcripts.iter().enumerate().collect();
     tx_by_idx.sort_unstable_by(|a, b| {
         a.1.chrom
@@ -100,13 +98,11 @@ pub fn compute_tin(
             .then(a.1.tx_start.cmp(&b.1.tx_start))
     });
 
-    // Pre-compute sampled positions for every transcript.
     let positions_vec: Vec<Vec<i64>> = transcripts
         .iter()
         .map(|tx| pick_positions(tx, sample_size))
         .collect();
 
-    // Accumulator: one entry per transcript (in BED12 order, indexed by original index).
     let mut accums: Vec<TxAccum> = positions_vec
         .iter()
         .map(|pos| TxAccum {
@@ -116,14 +112,12 @@ pub fn compute_tin(
         })
         .collect();
 
-    // Open BAM for sequential scan (no index needed for the linear pass).
     let file = File::open(bam_path)
         .map_err(|e| RsomicsError::InvalidInput(format!("{}: {e}", bam_path.display())))?;
     let mut reader = bam::io::Reader::new(file);
     let header = reader.read_header().map_err(RsomicsError::Io)?;
 
-    // Build a chromosome → sorted list of (tx_start, tx_end, original_tx_index) mapping.
-    // For each BAM record we'll find overlapping transcripts.
+    // chrom → sorted (tx_start, tx_end, original_index) for sweep-line overlap queries
     let mut chrom_txs: std::collections::HashMap<String, Vec<(i64, i64, usize)>> =
         std::collections::HashMap::new();
     for (orig_idx, tx) in transcripts.iter().enumerate() {
@@ -132,7 +126,6 @@ pub fn compute_tin(
             .or_default()
             .push((tx.tx_start, tx.tx_end, orig_idx));
     }
-    // Sort each chrom's list by tx_start for binary-search lookup.
     for v in chrom_txs.values_mut() {
         v.sort_unstable_by_key(|&(s, _, _)| s);
     }
@@ -262,7 +255,6 @@ pub fn compute_tin(
         }
     }
 
-    // Compute TIN from accumulated coverage.
     let mut results: Vec<Option<TinOutput>> = (0..transcripts.len()).map(|_| None).collect();
     for (orig_idx, tx) in transcripts.iter().enumerate() {
         let accum = &accums[orig_idx];
