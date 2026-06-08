@@ -275,3 +275,62 @@ fn tin_values_match_oracle() {
 
     eprintln!("TIN values: uniform={tin_uniform:.4}, biased={tin_biased:.4}, lowcov=0.0");
 }
+
+/// Always-run guard: run ours and diff per-transcript TIN + summary against the
+/// committed RSeQC tin.py 5.0.4 goldens. Runs in CI without tin.py installed.
+#[test]
+fn matches_committed_rseqc_golden() {
+    let bam = Path::new(GOLDEN).join("test.bam");
+    let bed = Path::new(GOLDEN).join("genes.bed12");
+
+    let ours_dir = tempfile::tempdir().unwrap();
+    let out = Command::new(BIN)
+        .args(["-i", bam.to_str().unwrap(), "-r", bed.to_str().unwrap()])
+        .current_dir(ours_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "rsomics-tin failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let our_xls = std::fs::read_to_string(ours_dir.path().join("test.tin.xls")).unwrap();
+    let our_sum = std::fs::read_to_string(ours_dir.path().join("test.summary.txt")).unwrap();
+    let golden_xls = std::fs::read_to_string(Path::new(GOLDEN).join("rseqc.tin.xls")).unwrap();
+    let golden_sum = std::fs::read_to_string(Path::new(GOLDEN).join("rseqc.summary.txt")).unwrap();
+
+    let grows = parse_tin_xls(&golden_xls);
+    let orows = parse_tin_xls(&our_xls);
+    assert_eq!(grows.len(), orows.len(), "row count differs from golden");
+    for (g, o) in grows.iter().zip(&orows) {
+        for col in 0..4 {
+            assert_eq!(g[col], o[col], "tin.xls col {col}: golden={g:?} ours={o:?}");
+        }
+        assert!(
+            floats_close(&g[4], &o[4]),
+            "tin.xls {} TIN: golden={} ours={}",
+            g[0],
+            g[4],
+            o[4]
+        );
+    }
+
+    let gsum = parse_summary(&golden_sum);
+    let osum = parse_summary(&our_sum);
+    assert_eq!(gsum.len(), osum.len(), "summary row count differs");
+    for (g, o) in gsum.iter().zip(&osum) {
+        for (col, label) in [(1, "mean"), (2, "median"), (3, "stdev")] {
+            assert!(
+                floats_close(&g[col], &o[col]),
+                "summary {label}: golden={} ours={}",
+                g[col],
+                o[col]
+            );
+        }
+    }
+    eprintln!(
+        "golden: {} transcripts + summary match RSeQC tin.py",
+        grows.len()
+    );
+}

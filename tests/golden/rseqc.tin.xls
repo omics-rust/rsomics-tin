@@ -1,0 +1,5 @@
+geneID	chrom	tx_start	tx_end	TIN
+tx_uniform	chr1	0	1000	94.873928653744
+tx_biased	chr1	2000	3200	79.53273343522405
+tx_lowcov	chr1	4000	5400	0.0
+tx_multiexon	chr1	6000	7500	84.06387078373548
