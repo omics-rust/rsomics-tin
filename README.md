@@ -34,6 +34,19 @@ Options:
 | `-c, --minCov` | minimum reads mapped to a transcript (below → TIN=0) | 10 |
 | `-n, --sample-size` | equally-spaced mRNA positions sampled per transcript | 100 |
 
+With `--json`, a single JSON envelope is written to stdout; the file outputs
+are still written. The `result` object carries one entry per processed BAM:
+
+```json
+{
+  "result": {
+    "samples": [
+      { "bam_file": "sample.bam", "mean": 82.4, "median": 85.1, "stdev": 12.3, "n_transcripts": 1200 }
+    ]
+  }
+}
+```
+
 ## Method
 
 For each transcript, per-base coverage is computed across the concatenated mRNA

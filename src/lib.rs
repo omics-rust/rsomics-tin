@@ -33,6 +33,6 @@ mod sample;
 mod score;
 mod stats;
 
-pub use model::{TinOutput, TinSummary};
+pub use model::{SampleReport, TinOutput, TinReport, TinSummary};
 pub use score::{compute_tin, compute_tin_score, effective_sample_size};
 pub use stats::summarise;

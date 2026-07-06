@@ -276,6 +276,51 @@ fn tin_values_match_oracle() {
     eprintln!("TIN values: uniform={tin_uniform:.4}, biased={tin_biased:.4}, lowcov=0.0");
 }
 
+/// `--json` must emit exactly ONE envelope with a populated `result`. A prior
+/// version printed the summary manually AND let the framework append a second
+/// `result:null` envelope — two concatenated docs that broke `json.load`.
+/// `from_str::<Value>` fails on trailing data, so a clean parse proves single-doc.
+#[test]
+fn json_is_single_doc_with_populated_result() {
+    let bam = Path::new(GOLDEN).join("test.bam");
+    let bed = Path::new(GOLDEN).join("genes.bed12");
+
+    let ours_dir = tempfile::tempdir().unwrap();
+    let out = Command::new(BIN)
+        .args([
+            "-i",
+            bam.to_str().unwrap(),
+            "-r",
+            bed.to_str().unwrap(),
+            "--json",
+        ])
+        .current_dir(ours_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "rsomics-tin --json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("stdout is not a single JSON doc ({e}): {stdout:?}"));
+
+    assert_eq!(doc["status"], "ok");
+    let result = &doc["result"];
+    assert!(!result.is_null(), "result must be populated, got null");
+
+    let samples = result["samples"].as_array().expect("result.samples array");
+    assert_eq!(samples.len(), 1, "one BAM in → one sample entry");
+    let s = &samples[0];
+    assert_eq!(s["bam_file"], "test.bam");
+    assert_eq!(s["n_transcripts"].as_u64().unwrap(), 4);
+    assert!(s["mean"].as_f64().unwrap() > 0.0);
+    assert!(s["median"].as_f64().unwrap() > 0.0);
+    assert!(s["stdev"].as_f64().is_some());
+}
+
 /// Always-run guard: run ours and diff per-transcript TIN + summary against the
 /// committed RSeQC tin.py 5.0.4 goldens. Runs in CI without tin.py installed.
 #[test]

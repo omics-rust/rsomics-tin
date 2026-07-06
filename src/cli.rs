@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use rsomics_common::{CommonFlags, Result, RsomicsError, Tool, ToolMeta};
 
-use rsomics_tin::{TinOutput, TinSummary, compute_tin, summarise};
+use rsomics_tin::{SampleReport, TinOutput, TinReport, TinSummary, compute_tin, summarise};
 
 pub const META: ToolMeta = ToolMeta {
     name: env!("CARGO_PKG_NAME"),
@@ -45,6 +45,34 @@ pub struct Cli {
     pub common: CommonFlags,
 }
 
+impl Cli {
+    fn execute(&self) -> Result<TinReport> {
+        let bam_paths = resolve_bam_inputs(&self.input_files)?;
+
+        let mut samples = Vec::with_capacity(bam_paths.len());
+        for bam_path in &bam_paths {
+            eprintln!("Processing {} ...", bam_path.display());
+            let result = compute_tin(bam_path, &self.refgene, self.min_cov, self.sample_size)?;
+            write_output(bam_path, &result)?;
+
+            let summary = build_summary(&result);
+            samples.push(SampleReport {
+                bam_file: bam_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?")
+                    .to_string(),
+                mean: summary.mean,
+                median: summary.median,
+                stdev: summary.stdev,
+                n_transcripts: result.len(),
+            });
+        }
+
+        Ok(TinReport { samples })
+    }
+}
+
 impl Tool for Cli {
     fn meta() -> ToolMeta {
         META
@@ -55,24 +83,16 @@ impl Tool for Cli {
     }
 
     fn execute(self) -> Result<()> {
-        let bam_paths = resolve_bam_inputs(&self.input_files)?;
-
-        for bam_path in &bam_paths {
-            eprintln!("Processing {} ...", bam_path.display());
-            let result = compute_tin(bam_path, &self.refgene, self.min_cov, self.sample_size)?;
-            write_output(bam_path, &result)?;
-
-            if self.common.json {
-                let summary = build_summary(&result);
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&summary)
-                        .map_err(|e| RsomicsError::InvalidInput(e.to_string()))?
-                );
-            }
-        }
-
+        Cli::execute(&self)?;
         Ok(())
+    }
+
+    // The default `run` discards the body's value, so `--json` would emit
+    // `result: null`. Override to carry the populated TinReport into the
+    // envelope; the non-json path keeps its file writes + stderr progress.
+    fn run(self) -> std::process::ExitCode {
+        let common = self.common().clone();
+        rsomics_common::run(&common, Self::meta(), move || Cli::execute(&self))
     }
 }
 

@@ -17,6 +17,22 @@ pub struct TinSummary {
     pub stdev: f64,
 }
 
+/// Per-BAM entry in the `--json` report.
+#[derive(Debug, serde::Serialize)]
+pub struct SampleReport {
+    pub bam_file: String,
+    pub mean: f64,
+    pub median: f64,
+    pub stdev: f64,
+    pub n_transcripts: usize,
+}
+
+/// The `--json` result object: one entry per processed BAM.
+#[derive(Debug, serde::Serialize)]
+pub struct TinReport {
+    pub samples: Vec<SampleReport>,
+}
+
 /// One transcript parsed from BED12.
 #[derive(Debug, Clone)]
 pub(crate) struct Transcript {
